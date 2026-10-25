@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -97,6 +98,11 @@ func DB() (*gorm.DB, error) {
 			&model.ComfyBridge{},
 			&model.ComfyBridgeRequest{},
 		)
+		if dbErr == nil {
+			if err := migrateInlineImageGenerationLogs(db); err != nil {
+				log.Printf("migrate inline image generation logs failed err=%v", err)
+			}
+		}
 	})
 	return db, dbErr
 }

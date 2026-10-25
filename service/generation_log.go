@@ -89,7 +89,8 @@ func SaveCurrentUserImageGenerationLogs(ctx context.Context, raws []json.RawMess
 	cleanupGenerationLogs()
 	logs := make([]model.ImageGenerationLog, 0, len(raws))
 	for _, raw := range raws {
-		log := imageGenerationLogFromPayload(raw)
+		sanitized := json.RawMessage(repository.SanitizeGenerationLogPayload(raw))
+		log := imageGenerationLogFromPayload(sanitized)
 		if log.ID != "" {
 			logs = append(logs, log)
 		}
@@ -132,7 +133,7 @@ func imageGenerationPayloads(logs []model.ImageGenerationLog) []json.RawMessage 
 	result := make([]json.RawMessage, 0, len(logs))
 	for _, log := range logs {
 		if strings.TrimSpace(log.PayloadJSON) != "" {
-			result = append(result, json.RawMessage(log.PayloadJSON))
+			result = append(result, json.RawMessage(repository.SanitizeGenerationLogPayload([]byte(log.PayloadJSON))))
 		}
 	}
 	return result

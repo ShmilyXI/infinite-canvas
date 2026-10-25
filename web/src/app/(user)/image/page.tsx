@@ -27,7 +27,7 @@ import {
     WandSparkles,
 } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Segmented, Tag, Typography } from "antd";
+import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Segmented, Spin, Tag, Typography } from "antd";
 import localforage from "localforage";
 import { saveAs } from "file-saver";
 
@@ -53,6 +53,7 @@ import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submi
 import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
 import { deleteImageGenerationLogs, fetchImageGenerationLogs, saveImageGenerationLogs } from "@/services/api/generation-logs";
 import { deleteStoredImages, imageToDataUrl, resolveImageUrl, uploadImage, uploadRemoteImageToServer } from "@/services/image-storage";
+import type { UploadedImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -154,6 +155,7 @@ export default function ImagePage() {
     const [uploadingCount, setUploadingCount] = useState(0);
     const [results, setResults] = useState<GenerationResult[]>([]);
     const [logs, setLogs] = useState<GenerationLog[]>([]);
+    const [historySyncing, setHistorySyncing] = useState(false);
     const [syncingImageIds, setSyncingImageIds] = useState<string[]>([]);
     const [categories, setCategories] = useState<GenerationCategory[]>([]);
     const [resultViewMode, setResultViewModeState] = useState<ResultViewMode>("all");
@@ -717,7 +719,7 @@ export default function ImagePage() {
         await logStore.setItem(log.id, serializeLog(nextLog));
         const nextLogs = logs.map((item) => item.id === log.id ? nextLog : item);
         setLogs(nextLogs);
-        await persistImageHistory(nextLogs, categories);
+        await persistImageLogs([nextLog]);
         if (previewLog?.id === log.id) setPreviewLog(nextLog);
     };
 
@@ -793,7 +795,6 @@ export default function ImagePage() {
         void Promise.all([deleteBackendImageTasks(deletedLogs), deleteAccountImageLogs(deletedLogs), deleteStoredImages(imageKeys), ...deletedLogs.map((log) => logStore.removeItem(log.id))]).then(async () => {
             setLogs(nextLogs);
             setReferences((value) => value.filter((item) => !item.storageKey || !imageKeys.includes(item.storageKey)));
-            await persistImageHistory(nextLogs, categories);
             await refreshLogs();
         });
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
@@ -817,7 +818,6 @@ export default function ImagePage() {
                 await Promise.all([deleteBackendImageTasks([log]), deleteAccountImageLogs([log]), deleteStoredImages(imageKeys), logStore.removeItem(log.id)]);
                 setLogs(nextLogs);
                 setReferences((value) => value.filter((item) => !item.storageKey || !imageKeys.includes(item.storageKey)));
-                await persistImageHistory(nextLogs, categories);
                 setSelectedLogIds((value) => value.filter((id) => id !== log.id));
                 if (previewLog?.id === log.id) setPreviewLog(null);
                 await refreshLogs();
@@ -825,14 +825,14 @@ export default function ImagePage() {
         });
     };
 
-    const persistLoggedOutLogImages = async (log: GenerationLog): Promise<GenerationLog> => {
+    const persistLogImages = async (log: GenerationLog): Promise<GenerationLog> => {
         const images = log.images || [];
         if (!images.some((image) => !image.storageKey && image.dataUrl?.startsWith("data:image/"))) return log;
         const persistedImages = await Promise.all(
             images.map(async (image) => {
                 if (image.storageKey || !image.dataUrl?.startsWith("data:image/")) return image;
                 try {
-                    const stored = await uploadImage(image.dataUrl, { localOnly: true });
+                    const stored = await uploadImage(image.dataUrl);
                     return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width || image.width, height: stored.height || image.height, bytes: stored.bytes || image.bytes, mimeType: stored.mimeType || image.mimeType };
                 } catch {
                     return image;
@@ -844,7 +844,7 @@ export default function ImagePage() {
 
     const saveLog = async (log: GenerationLog, active: () => boolean = () => true) => {
         if (!active()) return;
-        const persistedLog = token ? log : await persistLoggedOutLogImages(log);
+        const persistedLog = await persistLogImages(log);
         if (!active()) return;
         const prevChain = saveLogChainRef.current;
         const nextChain = (async () => {
@@ -865,7 +865,7 @@ export default function ImagePage() {
             if (!active()) return;
             await logStore.setItem(log.id, serializeLog(persistedLog));
             if (!active()) return;
-            await persistImageHistory(nextLogs, categories);
+            await persistImageLogs([persistedLog]);
         })();
         saveLogChainRef.current = nextChain;
         await nextChain;
@@ -879,10 +879,13 @@ export default function ImagePage() {
     const refreshCategories = async () => setCategories(await readStoredCategories());
 
     const loadAccountImageHistory = async () => {
+        accountHistorySyncEnabledRef.current = true;
+        const localLogs = await readStoredLogs();
+        const storedCategories = await readStoredCategories();
+        setCategories(storedCategories);
+        setLogs(localLogs);
+        setHistorySyncing(true);
         try {
-            accountHistorySyncEnabledRef.current = true;
-            const localLogs = await readStoredLogs();
-            const storedCategories = await readStoredCategories();
             const remoteLogs = await fetchImageGenerationLogs<GenerationLog>(token);
             const mergedLogs = await mergeGenerationLogs(remoteLogs, localLogs);
             const categorized = withWorkflowLogCategories(mergedLogs, storedCategories);
@@ -891,14 +894,16 @@ export default function ImagePage() {
             setLogs(categorized.logs);
             return categorized.logs;
         } catch {
-            // Keep local history available when account sync fails.
-            return undefined;
+            message.error("云端历史同步失败，已展示本地记录");
+            return localLogs;
+        } finally {
+            setHistorySyncing(false);
         }
     };
 
-    const persistImageHistory = async (nextLogs: GenerationLog[], _nextCategories: GenerationCategory[]) => {
-        if (!token || !accountHistorySyncEnabledRef.current) return;
-        await saveImageGenerationLogs(token, nextLogs.map(serializeLog)).catch(() => {
+    const persistImageLogs = async (changedLogs: GenerationLog[]) => {
+        if (!token || !accountHistorySyncEnabledRef.current || !changedLogs.length) return;
+        await saveImageGenerationLogs(token, changedLogs.map(serializeLog)).catch(() => {
             accountHistorySyncEnabledRef.current = false;
         });
     };
@@ -1004,7 +1009,6 @@ export default function ImagePage() {
         const nextCategories = [...categories, nextCategory];
         setCategories(nextCategories);
         await categoryStore.setItem(CATEGORY_STORE_KEY, nextCategories);
-        await persistImageHistory(logs, nextCategories);
         return nextCategory;
     };
 
@@ -1017,7 +1021,6 @@ export default function ImagePage() {
         const nextCategories = categories.map((item) => (item.id === category.id ? { ...item, name: trimmedName } : item));
         setCategories(nextCategories);
         await categoryStore.setItem(CATEGORY_STORE_KEY, nextCategories);
-        await persistImageHistory(logs, nextCategories);
         message.success("已重命名分类");
     };
 
@@ -1030,12 +1033,14 @@ export default function ImagePage() {
             okButtonProps: { danger: true },
             onOk: async () => {
                 const nextCategories = categories.filter((item) => item.id !== category.id);
-                const nextLogs = logs.map((log) => ({ ...log, categoryIds: log.categoryIds.filter((id) => id !== category.id) }));
+                const affectedLogs = logs.filter((log) => log.categoryIds.includes(category.id)).map((log) => ({ ...log, categoryIds: log.categoryIds.filter((id) => id !== category.id) }));
+                const affectedById = new Map(affectedLogs.map((log) => [log.id, log]));
+                const nextLogs = logs.map((log) => affectedById.get(log.id) || log);
                 setCategories(nextCategories);
                 setLogs(nextLogs);
                 await categoryStore.setItem(CATEGORY_STORE_KEY, nextCategories);
-                await Promise.all(nextLogs.map((log) => logStore.setItem(log.id, serializeLog(log))));
-                await persistImageHistory(nextLogs, nextCategories);
+                await Promise.all(affectedLogs.map((log) => logStore.setItem(log.id, serializeLog(log))));
+                await persistImageLogs(affectedLogs);
                 message.success("已删除分类");
             },
         });
@@ -1046,7 +1051,7 @@ export default function ImagePage() {
         const nextLogs = logs.map((item) => (item.id === log.id ? nextLog : item));
         setLogs(nextLogs);
         await logStore.setItem(log.id, serializeLog(nextLog));
-        await persistImageHistory(nextLogs, categories);
+        await persistImageLogs([nextLog]);
         await refreshLogs();
         message.success(categoryIds.length ? "已更新分类" : "已移至未分类");
     };
@@ -1260,6 +1265,7 @@ export default function ImagePage() {
                             activeCategoryId={activeResultCategoryId}
                             pendingCount={pendingCount}
                             now={now}
+                            historySyncing={historySyncing}
                             selectedLogIds={selectedLogIds}
                             activeLogId={previewLog?.id}
                             onSelectedLogIdsChange={setSelectedLogIds}
@@ -1297,6 +1303,7 @@ export default function ImagePage() {
                             activeCategoryId={activeResultCategoryId}
                             pendingCount={pendingCount}
                             now={now}
+                            historySyncing={historySyncing}
                             selectedLogIds={selectedLogIds}
                             activeLogId={previewLog?.id}
                             onSelectedLogIdsChange={setSelectedLogIds}
@@ -1385,7 +1392,6 @@ export default function ImagePage() {
                             const nextLogs = await readStoredLogs();
                             setCategories(nextCategories);
                             setLogs(nextLogs);
-                            await persistImageHistory(nextLogs, nextCategories);
                         })();
                     }}
                 />
@@ -1723,6 +1729,7 @@ function ResultsPanel({
     activeCategoryId,
     pendingCount,
     now,
+    historySyncing = false,
     selectedLogIds,
     activeLogId,
     onSelectedLogIdsChange,
@@ -1756,6 +1763,7 @@ function ResultsPanel({
     activeCategoryId: string | null;
     pendingCount: number;
     now: number;
+    historySyncing?: boolean;
     selectedLogIds: string[];
     activeLogId?: string;
     onSelectedLogIdsChange: (ids: string[]) => void;
@@ -1819,6 +1827,12 @@ function ResultsPanel({
                     <h2 className="truncate text-xl font-semibold">{activeCategory ? activeCategory.name : "全部结果"}</h2>
                     <Tag className="m-0">{totalCount}</Tag>
                     {pendingCount ? <Tag className="m-0 px-2 py-1">{pendingCount} 个生成中</Tag> : null}
+                    {historySyncing && !totalCount ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-stone-500 dark:text-stone-400">
+                            <Spin size="small" />
+                            同步历史中
+                        </span>
+                    ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                     {activeCategory ? (
@@ -1898,6 +1912,26 @@ function ResultsPanel({
                             syncing={syncingImageIds.includes(log.images.find((image) => Boolean(image.dataUrl))?.id || "")}
                             onSync={(image) => onSyncLog(log, image, index)}
                         />
+                    ))}
+                </div>
+            ) : historySyncing ? (
+                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                    {Array.from({ length: 8 }, (_, index) => (
+                        <div key={index} className="overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
+                            <div className="relative aspect-[4/3]">
+                                <div
+                                    className="absolute inset-0 opacity-60"
+                                    style={{
+                                        backgroundImage: "radial-gradient(circle, rgba(120,113,108,0.35) 1.4px, transparent 1.6px)",
+                                        backgroundSize: "16px 16px",
+                                    }}
+                                />
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+                                    <LoaderCircle className="size-6 animate-spin" />
+                                    <span>同步历史中</span>
+                                </div>
+                            </div>
+                        </div>
                     ))}
                 </div>
             ) : (
@@ -2813,15 +2847,17 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         const taskImageUrl = log.task?.image_url || log.task?.url || "";
         const dataUrl = await resolveImageUrl(log.task?.storageKey, taskImageUrl);
         if (dataUrl) {
+            let stored: UploadedImage | null = null;
+            if (dataUrl.startsWith("data:image/")) stored = await persistTaskImage(dataUrl);
             visibleImages.push({
                 id: log.task?.id || log.id || nanoid(),
-                dataUrl,
-                storageKey: log.task?.storageKey,
+                dataUrl: stored?.url || dataUrl,
+                storageKey: stored?.storageKey || log.task?.storageKey,
                 durationMs: log.durationMs || 0,
-                width: log.task?.width || 0,
-                height: log.task?.height || 0,
-                bytes: log.task?.bytes || 0,
-                mimeType: log.task?.mimeType || "image/png",
+                width: stored?.width || log.task?.width || 0,
+                height: stored?.height || log.task?.height || 0,
+                bytes: stored?.bytes || log.task?.bytes || 0,
+                mimeType: stored?.mimeType || log.task?.mimeType || "image/png",
             });
         }
     }
@@ -2857,13 +2893,36 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
     };
 }
 
+const taskImagePersistCache = new Map<string, Promise<UploadedImage | null>>();
+
+async function persistTaskImage(dataUrl: string): Promise<UploadedImage | null> {
+    const cacheKey = `${dataUrl.length}:${dataUrl.slice(0, 24)}:${dataUrl.slice(-24)}`;
+    const cached = taskImagePersistCache.get(cacheKey);
+    if (cached) return cached;
+    const request = uploadImage(dataUrl).catch(() => null);
+    taskImagePersistCache.set(cacheKey, request);
+    if (taskImagePersistCache.size > 64) taskImagePersistCache.delete(taskImagePersistCache.keys().next().value as string);
+    return request;
+}
+
 function serializeLog(log: GenerationLog): GenerationLog {
     return {
         ...log,
         references: log.references.map((item) => ({ ...item, dataUrl: persistableImageUrl(item.dataUrl, item.storageKey) })),
         images: log.images.map((image) => ({ ...image, dataUrl: persistableImageUrl(image.dataUrl, image.storageKey) })),
         thumbnails: log.images.map((image) => persistableImageUrl(image.dataUrl, image.storageKey)),
+        task: serializeLogTask(log.task),
     };
+}
+
+function serializeLogTask(task?: CanvasImageTask) {
+    if (!task) return task;
+    const persistableTaskUrl = (value?: string) => (value?.startsWith("data:image/") ? "" : value || "");
+    const next: CanvasImageTask = { ...task, url: persistableTaskUrl(task.url), image_url: persistableTaskUrl(task.image_url) };
+    if (Array.isArray(task.image_urls)) next.image_urls = task.image_urls.map((url) => (url?.startsWith("data:image/") ? "" : url));
+    if (Array.isArray(task.imageStorage)) next.imageStorage = task.imageStorage.map((image) => (image && image.url.startsWith("data:image/") ? { ...image, url: "" } : image));
+    if (typeof task.error_detail === "string" && task.error_detail.includes("data:image/") && task.error_detail.length > 8192) next.error_detail = task.error_detail.slice(0, 2048) + "…";
+    return next;
 }
 
 function persistableImageUrl(dataUrl?: string, storageKey?: string) {
