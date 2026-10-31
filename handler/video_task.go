@@ -90,7 +90,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	credits := 0.0
 	if userChannelID == "" {
-		credits, err = service.ModelCost(modelName)
+		credits, err = service.ModelCost(modelName, readAIRequestResolution(body, contentType))
 		if err != nil {
 			log.Printf("AI video read model cost failed: model=%s err=%v", modelName, err)
 			Fail(w, "AI 接口请求失败")

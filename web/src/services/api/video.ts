@@ -12,7 +12,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalize
 import { isKIEGrokVideoModel, isKIEKlingV3Config, kieKlingOmniVariant } from "./protocols/kling-models";
 import { autoDLBaseUrl, getAutoDLCapabilities } from "@/lib/autodl";
 import { fetchAutoDLWorkflow } from "./autodl";
-import { isAgnesVideoV25Model, isCogVideoX3Model, isWan3VideoModel, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration } from "@/lib/video-model-capabilities";
+import { isAgnesVideoV25Model, isCogVideoX3Model, isWan3VideoModel, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration, videoDurationOptionsForModel } from "@/lib/video-model-capabilities";
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { autoSyncToCloud, imageToDataUrl, resolveImageUrl } from "@/services/image-storage";
 import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, type AiConfig, type VideoElementReference } from "@/stores/use-config-store";
@@ -476,11 +476,9 @@ async function createVideoRequestBody(config: AiConfig, model: string, prompt: s
         body.append("mode", normalizeAPIMartKlingMotionControlMode(config.vquality));
     } else {
         if (!kieMotionControl && !isGeminiOmniFlashVideoModel(model)) {
-            const seconds = apimartWan3 && config.videoSeconds.trim() === "-1"
-                ? "-1"
-                : isSeedanceVideoConfig(config)
-                    ? String(normalizeSeedanceDuration(config.videoSeconds, (modelKey(model).includes("seedance-2-5") || modelKey(model).includes("seedance2-5") || modelKey(model).includes("sd2-5")) ? 30 : 15))
-                    : normalizeVideoSecondsForModel(model, config.videoSeconds);
+            const seconds = isSeedanceVideoConfig(config)
+                ? String(normalizeSeedanceDuration(config.videoSeconds, (modelKey(model).includes("seedance-2-5") || modelKey(model).includes("seedance2-5") || modelKey(model).includes("sd2-5")) ? 30 : 15))
+                : normalizeVideoSecondsForModel(model, config.videoSeconds);
             body.append("seconds", seconds);
         }
         if (tokenDance || isSeedanceVideoConfig(config)) body.append("size", normalizeSeedanceRatio(config.size));
@@ -813,16 +811,10 @@ function isGeminiOmniFlashVideoModel(model: string) {
 }
 
 function normalizeVideoSecondsForModel(model: string, value: string) {
+    const options = videoDurationOptionsForModel(model);
+    if (options?.includes(-1) && value.trim() === "-1") return "-1";
     const seconds = Number(normalizeVideoSeconds(value));
-    const key = modelKey(model);
-    if (key.includes("sora-2")) return closestAllowedSeconds(seconds, [4, 8, 12, 16, 20]);
-    if (key.includes("veo3-1") || key.includes("veo-3-1")) return closestAllowedSeconds(seconds, [4, 6, 8]);
-    if (key.includes("minimax-hailuo-02")) return closestAllowedSeconds(seconds, [5, 10]);
-    if (key.includes("minimax-hailuo-2-3")) return closestAllowedSeconds(seconds, [6, 10]);
-    if (key.includes("omni-flash-ext")) return closestAllowedSeconds(seconds, [4, 6, 8, 10]);
-    if (key.includes("wan2-5") || key.includes("wan2.5")) return closestAllowedSeconds(seconds, [5, 10]);
-    if (key === "wan2-6") return closestAllowedSeconds(seconds, [5, 10, 15]);
-    return String(seconds);
+    return options ? closestAllowedSeconds(seconds, options) : String(seconds);
 }
 
 function closestAllowedSeconds(seconds: number, allowed: number[]) {

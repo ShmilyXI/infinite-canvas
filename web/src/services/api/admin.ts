@@ -224,6 +224,7 @@ export type AdminPublicModelChannelSettings = {
 
 export type AdminModelCost = {
     model: string;
+    resolution?: string;
     credits: number;
 };
 

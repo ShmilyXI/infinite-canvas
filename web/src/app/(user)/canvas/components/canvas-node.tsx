@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { useParams } from "next/navigation";
 import { ChevronRight, Image as ImageIcon, Maximize2, Music2, Pause, Play, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { pickImageSource } from "@/lib/image-thumbnail";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
+import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
@@ -57,6 +60,7 @@ type CanvasNodeProps = {
 
 type NodeContentRendererProps = {
     node: CanvasNodeData;
+    scale: number;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     isSelected: boolean;
     isEditingContent: boolean;
@@ -400,6 +404,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     {!isGroup ? (
                         <NodeContent
                             node={data}
+                            scale={scale}
                             theme={theme}
                             isSelected={isSelected}
                             now={now}
@@ -447,7 +452,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 </>
             ) : null}
 
-            {!referenceSelectionState && showPanel && !isGroup && renderPanel ? <div className={"absolute left-1/2 top-full z-[70] max-w-[calc(100vw-24px)] -translate-x-1/2 pt-4 " + (isCanvasImageNodeType(data.type) || data.type === CanvasNodeType.Video || data.type === CanvasNodeType.Audio ? "w-[622px]" : "w-[500px]")} style={{ transform: "scale(var(--canvas-inverse-scale))", transformOrigin: "top center" }}>{renderPanel(data)}</div> : null}
+            {!referenceSelectionState && showPanel && !isGroup && renderPanel ? <div className={"absolute left-1/2 top-full z-[70] max-w-[calc(100vw-24px)] -translate-x-1/2 pt-4 " + (isCanvasImageNodeType(data.type) || data.type === CanvasNodeType.Video || data.type === CanvasNodeType.Audio ? "w-[682px]" : "w-[500px]")} style={{ transform: "scale(var(--canvas-inverse-scale))", transformOrigin: "top center" }}>{renderPanel(data)}</div> : null}
         </div>
     );
 });
@@ -620,6 +625,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     return (
         <ImageContent
             node={props.node}
+            scale={props.scale}
             isBatchRoot={props.isBatchRoot}
             batchCount={props.batchCount}
             batchExpanded={props.batchExpanded}
@@ -640,6 +646,7 @@ function PanoramaNodeContent(props: NodeContentRendererProps) {
     return (
         <ImageContent
             node={props.node}
+            scale={props.scale}
             isBatchRoot={props.isBatchRoot}
             batchCount={props.batchCount}
             batchExpanded={props.batchExpanded}
@@ -756,6 +763,7 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
 
 function ImageContent({
     node,
+    scale,
     isBatchRoot,
     batchCount,
     batchExpanded,
@@ -767,6 +775,7 @@ function ImageContent({
     media,
 }: {
     node: CanvasNodeData;
+    scale: number;
     isBatchRoot: boolean;
     batchCount: number;
     batchExpanded: boolean;
@@ -778,19 +787,37 @@ function ImageContent({
     media?: ReactNode;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const projectId = useParams<{ id: string }>().id;
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const content = node.metadata?.content || "";
+    const storageKey = node.metadata?.storageKey;
+    const previewKey = `canvas-node:${projectId}:${node.id}`;
+    const previewSource = `${node.metadata?.primaryImageId || ""}:${node.metadata?.imageTaskResultId || ""}:${storageKey || content}`;
+    const hasNaturalSize = Boolean(node.metadata?.naturalWidth && node.metadata?.naturalHeight);
+
+    useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision, getImagePreviewRevision);
+
+    const imageSource = pickImageSource({
+        previewUrl: hasNaturalSize ? previewUrlFor(previewKey, previewSource) : undefined,
+        originalUrl: content,
+        naturalWidth: node.metadata?.naturalWidth,
+        naturalHeight: node.metadata?.naturalHeight,
+        renderedWidth: node.width,
+        renderedHeight: node.height,
+        scale,
+    });
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 {media ?? (
                     <img
-                        src={node.metadata!.content!}
+                        src={imageSource}
                         alt={node.title}
                         draggable={false}
                         onLoad={(event) => {
                             const image = event.currentTarget;
-                            if (image.currentSrc === image.src) onResize?.(node.id, image.naturalWidth, image.naturalHeight, undefined, node);
+                            if (imageSource === content && image.currentSrc === image.src) onResize?.(node.id, image.naturalWidth, image.naturalHeight, undefined, node);
                         }}
                         onDragStart={(event) => event.preventDefault()}
                         className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}

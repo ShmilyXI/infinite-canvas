@@ -57,6 +57,9 @@ export type AiConfig = {
     mimoTtsFormat: string;
     mimoVoiceDesignPrompt: string;
     geminiTtsVoice: string;
+    miniMaxTtsVoice: string;
+    miniMaxTtsFormat: string;
+    miniMaxTtsSpeed: string;
     videoSeconds: string;
     videoMode: string;
     videoNegativePrompt: string;
@@ -132,6 +135,9 @@ export const defaultConfig: AiConfig = {
     mimoTtsFormat: "wav",
     mimoVoiceDesignPrompt: "",
     geminiTtsVoice: "Kore",
+    miniMaxTtsVoice: "female-yujie",
+    miniMaxTtsFormat: "mp3",
+    miniMaxTtsSpeed: "1",
     videoSeconds: "6",
     videoMode: "std",
     videoNegativePrompt: "",

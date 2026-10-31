@@ -3,6 +3,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { deleteImagePreviews } from "@/services/image-storage";
 import { listCanvasProjects, saveCanvasProject, syncCanvasProjects } from "@/services/api/canvas-tasks";
 import { fetchUserConfig } from "@/services/api/user-config";
 import { useUserStore } from "@/stores/use-user-store";
@@ -325,6 +326,11 @@ export const useCanvasStore = create<CanvasStore>()(
             },
             deleteProjects: (ids) => {
                 cancelProjectSaves(ids);
+                void deleteImagePreviews(
+                    get().projects
+                        .filter((project) => ids.includes(project.id))
+                        .flatMap((project) => project.nodes.map((node) => `canvas-node:${project.id}:${node.id}`)),
+                );
                 set((state) => ({
                     projects: state.projects.filter(
                         (project) => !ids.includes(project.id),

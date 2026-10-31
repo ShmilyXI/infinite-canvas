@@ -87,8 +87,9 @@ type WorkflowSummary struct {
 
 // ModelCost 模型算力点配置。
 type ModelCost struct {
-	Model   string  `json:"model"`
-	Credits float64 `json:"credits"`
+	Model      string  `json:"model"`
+	Resolution string  `json:"resolution,omitempty"`
+	Credits    float64 `json:"credits"`
 }
 
 // PublicModelChannelSetting 公开模型渠道配置。

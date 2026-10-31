@@ -7,7 +7,7 @@ export function isCogVideoX3Model(modelName: string) {
 }
 
 export function isAgnesVideoV25Model(modelName: string) {
-    return modelKey(modelName) === "agnes-video-2-5";
+    return modelKey(modelName).startsWith("agnes-video-2-5");
 }
 
 export function isWan3VideoModel(modelName: string) {
@@ -20,6 +20,19 @@ export const COGVIDEOX3_DURATIONS = ["5", "10"] as const;
 export function normalizeCogVideoX3Duration(value: string) {
     const seconds = Number(value) || 5;
     return Math.abs(seconds - 5) <= Math.abs(seconds - 10) ? COGVIDEOX3_DURATIONS[0] : COGVIDEOX3_DURATIONS[1];
+}
+
+export function videoDurationOptionsForModel(modelName: string) {
+    const model = modelKey(modelName);
+    if (model.includes("wan3")) return [-1, ...Array.from({ length: 29 }, (_, index) => index + 2)];
+    if (model.includes("sora-2")) return [4, 8, 12, 16, 20];
+    if (model.includes("veo3-1") || model.includes("veo-3-1")) return [4, 6, 8];
+    if (model.includes("minimax-hailuo-02")) return [5, 10];
+    if (model.includes("minimax-hailuo-2-3")) return [6, 10];
+    if (model.includes("omni-flash-ext")) return [4, 6, 8, 10];
+    if (model.includes("wan2-5") || model.includes("wan2.5")) return [5, 10];
+    if (model === "wan2-6") return [5, 10, 15];
+    return null;
 }
 
 export function supportsVideoFrameReferences(modelName: string, protocol = "") {

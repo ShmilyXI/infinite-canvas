@@ -44,7 +44,7 @@ func SaveCurrentUserVideoGenerationLogs(ctx context.Context, raws []json.RawMess
 	if err := repository.UpsertVideoGenerationLogs(user.ID, logs); err != nil {
 		return nil, err
 	}
-	return CurrentUserVideoGenerationLogs(ctx)
+	return videoGenerationPayloads(logs), nil
 }
 
 func DeleteCurrentUserVideoGenerationLog(ctx context.Context, id string) error {
@@ -98,7 +98,7 @@ func SaveCurrentUserImageGenerationLogs(ctx context.Context, raws []json.RawMess
 	if err := repository.UpsertImageGenerationLogs(user.ID, logs); err != nil {
 		return nil, err
 	}
-	return CurrentUserImageGenerationLogs(ctx)
+	return imageGenerationPayloads(logs), nil
 }
 
 func DeleteCurrentUserImageGenerationLog(ctx context.Context, id string) error {
