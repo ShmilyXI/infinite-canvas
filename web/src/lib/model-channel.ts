@@ -2,16 +2,16 @@ export const modelChannelProtocols = [
     { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com" },
     { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com" },
     { value: "grok2api", label: "Grok2API", baseUrl: "" },
-    { value: "minimax", label: "MiniMax & METASO", baseUrl: "https://metaso.cn/api/minimax", apiKeyUrl: "https://metaso.cn/minimax-h3/?s=tt" },
-    { value: "apimart", label: "APIMart", baseUrl: "https://api.apimart.ai/v1", apiKeyUrl: "https://apimart.ai/register?aff=fWMrEv", directRequestPlan: true },
-    { value: "88api", label: "88API", baseUrl: "https://88api.ai/v1", apiKeyUrl: "https://88api.ai/sign-up?aff=25ty" },
+    { value: "minimax", label: "MiniMax & METASO", baseUrl: "https://metaso.cn/api/minimax", apiKeyUrl: "https://metaso.cn/minimax-h3/" },
+    { value: "apimart", label: "APIMart", baseUrl: "https://api.apimart.ai/v1", apiKeyUrl: "https://apimart.ai/register", directRequestPlan: true },
+    { value: "88api", label: "88API", baseUrl: "https://88api.ai/v1", apiKeyUrl: "https://88api.ai/sign-up" },
     { value: "tokendance", label: "TokenDance", baseUrl: "https://tokendance.space/gateway/v1", directRequestPlan: true },
     { value: "runninghub", label: "RunningHub", baseUrl: "https://www.runninghub.cn" },
     { value: "comfyui", label: "ComfyUI", baseUrl: "" },
     { value: "autodl", label: "AutoDL", baseUrl: "https://autodl.art", directRequestPlan: true },
     { value: "ark", label: "火山方舟", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", directRequestPlan: true },
     { value: "kie", label: "KIE", baseUrl: "https://api.kie.ai/api/v1", directRequestPlan: true },
-    { value: "mimo", label: "MiMo", baseUrl: "https://api.xiaomimimo.com", apiKeyUrl: "https://platform.xiaomimimo.com/?ref=JFZQR2" },
+    { value: "mimo", label: "MiMo", baseUrl: "https://api.xiaomimimo.com", apiKeyUrl: "https://platform.xiaomimimo.com/" },
 ] as const;
 
 export type ModelChannelProtocol = (typeof modelChannelProtocols)[number]["value"];
