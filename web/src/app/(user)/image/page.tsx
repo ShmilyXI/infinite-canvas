@@ -905,9 +905,7 @@ export default function ImagePage() {
 
     const persistImageLogs = async (changedLogs: GenerationLog[]) => {
         if (!token || !accountHistorySyncEnabledRef.current || !changedLogs.length) return;
-        await saveImageGenerationLogs(token, changedLogs.map(serializeLog)).catch(() => {
-            accountHistorySyncEnabledRef.current = false;
-        });
+        await saveImageGenerationLogs(token, changedLogs.map(serializeLog)).catch(() => undefined);
     };
 
     const syncBackendImageTasks = async (baseLogs?: GenerationLog[]) => {

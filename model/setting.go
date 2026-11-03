@@ -198,6 +198,7 @@ type StorageProvider struct {
 	AllowPrivateNetwork bool `json:"allowPrivateNetwork,omitempty"`
 	Region            string `json:"region"`
 	Bucket            string `json:"bucket"`
+	BucketInHost      bool   `json:"bucketInHost,omitempty"`
 	AccessKeyID       string `json:"accessKeyId"`
 	SecretAccessKey   string `json:"secretAccessKey"`
 	PublicBaseURL     string `json:"publicBaseUrl"`
@@ -236,8 +237,8 @@ type PrivateLinuxDoAuthSetting struct {
 type Setting struct {
 	Key       SettingKey      `json:"key" gorm:"primaryKey"`
 	Value     json.RawMessage `json:"value" gorm:"serializer:json"`
-	CreatedAt string          `json:"createdAt"`
-	UpdatedAt string          `json:"updatedAt"`
+	CreatedAt string          `json:"createdAt" gorm:"size:64"`
+	UpdatedAt string          `json:"updatedAt" gorm:"size:64"`
 }
 
 // Settings 系统公开和私有配置。
