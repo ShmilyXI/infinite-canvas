@@ -80,6 +80,13 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 				let workflowsReady = true;
 				const syncS3 = payload.modelConfig?.syncStorageConfig === true;
                 const syncWebDAV = payload.modelConfig?.syncWebDAVStorageConfig === true;
+                if (!payload.modelConfig) {
+                    // 当前账号在服务端没有任何模型配置：以服务端为准清空本地残留，
+                    // 否则上一个账号在同一浏览器留下的渠道（含 API Key）会被继续显示。
+                    useConfigStore.setState({ config: defaultConfig });
+                    updateConfig("workflowSyncTouched", false);
+                    return;
+                }
                 if (payload.modelConfig) {
                     const { workflowChannels, channelTranslations, ...modelConfig } = payload.modelConfig;
 					await useChannelTranslationStore.getState().replace(accountId, channelTranslations || [], translationRevision);

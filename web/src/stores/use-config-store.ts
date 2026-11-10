@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider, type ModelChannelProtocol } from "@/lib/model-channel";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
@@ -108,6 +108,39 @@ export type AiConfig = {
 };
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
+// 配置缓存按账号隔离：未登录用基础键，登录后用 <基础键>:<userId>，
+// 避免同一浏览器切换账号时把上一个账号的渠道（含 API Key）带进新账号。
+export function configStoreKeyFor(userId?: string) {
+    return userId ? `${CONFIG_STORE_KEY}:${userId}` : CONFIG_STORE_KEY;
+}
+
+// 动态 storage：读写时按「当前登录账号」解析键名，而不是固定在 store 创建时。
+// 这样切换账号天然读写各自的空间，未登录时用基础键作为临时态。
+const configScopedStorage: PersistStorage<Pick<ConfigStore, "config">> = {
+    getItem: (name) => {
+        if (typeof window === "undefined") return null;
+        const key = configStoreKeyFor(useUserStore.getState().user?.id);
+        const raw = window.localStorage.getItem(key) ?? (key === name ? null : window.localStorage.getItem(name));
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw) as StorageValue<Pick<ConfigStore, "config">>;
+        } catch {
+            return null;
+        }
+    },
+    setItem: (name, value) => {
+        if (typeof window === "undefined") return;
+        const key = configStoreKeyFor(useUserStore.getState().user?.id);
+        window.localStorage.setItem(key, JSON.stringify(value));
+        // 写入账号空间后清掉未登录态的临时键，避免下次匿名访问读到账号配置
+        if (key !== name) window.localStorage.removeItem(name);
+    },
+    removeItem: (name) => {
+        if (typeof window === "undefined") return;
+        window.localStorage.removeItem(configStoreKeyFor(useUserStore.getState().user?.id));
+        window.localStorage.removeItem(name);
+    },
+};
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ModelCapabilities = Partial<Record<string, ModelCapability>>;
 
@@ -424,6 +457,7 @@ export const useConfigStore = create<ConfigStore>()(
         }),
         {
             name: CONFIG_STORE_KEY,
+            storage: configScopedStorage,
             partialize: (state) => ({ config: state.config }),
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
